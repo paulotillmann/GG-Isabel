@@ -83,6 +83,27 @@
         --ring: 222.2 84% 4.9%;
         --radius: 0.5rem;
       }
+
+      html {
+        /* Padrão do navegador: 16px */
+        font-size: 100%; 
+      }
+
+      /* Notebooks médios / Telas padrão (1366x768 até 1440px) */
+      @media (max-width: 1440px) {
+        html {
+          /* Reduz para 14px (14 / 16 = 0.875) */
+          font-size: 87.5%; 
+        }
+      }
+
+      /* Tablets e Notebooks bem pequenos (abaixo de 1024px) */
+      @media (max-width: 1024px) {
+        html {
+          /* Reduz para cerca de 13px */
+          font-size: 81.25%;
+        }
+      }
     </style>
   <script type="importmap">
 {
