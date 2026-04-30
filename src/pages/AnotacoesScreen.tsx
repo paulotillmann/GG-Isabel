@@ -12,21 +12,30 @@ const STATUS_COLORS: Record<string, string> = {
 
 // (A geração estática foi substituída por useMemo dinâmico)
 
-// Funções de formatação nativas para não depender de libs
+// Funções de formatação nativas — sem conversão de timezone (tudo UTC)
 const formatDateHeader = (date: Date) => {
   const weekdays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-  const dayName = weekdays[date.getDay()];
-  const dayNum = String(date.getDate()).padStart(2, '0');
-  const monthNum = String(date.getMonth() + 1).padStart(2, '0');
+  const dayName = weekdays[date.getUTCDay()];
+  const dayNum = String(date.getUTCDate()).padStart(2, '0');
+  const monthNum = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${dayNum}/${monthNum} ${dayName}`;
 };
 
 const formatTime = (isoString: string) => {
   const d = new Date(isoString);
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
   return `${h}:${m}`;
 };
+
+/** Converte um Date para o formato "YYYY-MM-DDTHH:MM" em UTC (usado em inputs datetime-local) */
+const toInputValue = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+};
+
+/** Converte valor do input datetime-local (string sem tz) para ISO UTC */
+const inputToISO = (val: string): string => val ? val + ':00.000Z' : '';
 
 export default function AnotacoesScreen() {
   const { user } = useAuth();
@@ -35,32 +44,32 @@ export default function AnotacoesScreen() {
 
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 2);
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    d.setUTCDate(d.getUTCDate() - 2);
+    return d.toISOString().split('T')[0];
   });
   
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() + 3);
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    d.setUTCDate(d.getUTCDate() + 3);
+    return d.toISOString().split('T')[0];
   });
 
   const columns = useMemo(() => {
     const days = [];
     if (!startDate || !endDate) return [];
     
-    // Tratamento de timezone seguro
+    // Gera colunas em UTC
     const [sy, sm, sd] = startDate.split('-').map(Number);
-    const start = new Date(sy, sm - 1, sd);
+    const start = new Date(Date.UTC(sy, sm - 1, sd));
     
     const [ey, em, ed] = endDate.split('-').map(Number);
-    const end = new Date(ey, em - 1, ed);
+    const end = new Date(Date.UTC(ey, em - 1, ed));
     
-    let current = start;
+    let current = new Date(start);
     let count = 0;
     while (current <= end && count < 30) {
       days.push(new Date(current));
-      current.setDate(current.getDate() + 1);
+      current.setUTCDate(current.getUTCDate() + 1);
       count++;
     }
     return days;
@@ -126,17 +135,14 @@ export default function AnotacoesScreen() {
     setWaNum('');
     setDesc('');
     
-    // Default form time initialization
-    const initialDate = defaultDate ? new Date(defaultDate) : new Date();
+    // Inicializa com data/hora atual em UTC
+    const now = new Date();
+    const initialDate = defaultDate ? new Date(defaultDate) : now;
     if (defaultDate) {
-      // Set to current time of today but on the specific target day
-      const now = new Date();
-      initialDate.setHours(now.getHours(), now.getMinutes());
+      initialDate.setUTCHours(now.getUTCHours(), now.getUTCMinutes());
     }
     
-    const tzOffset = initialDate.getTimezoneOffset() * 60000; // offset em milisegundos
-    const localISOTime = new Date(initialDate.getTime() - tzOffset).toISOString().slice(0, 16);
-    setDataHora(localISOTime);
+    setDataHora(toInputValue(initialDate));
     setStatus('recebido');
     setIsModalOpen(true);
   };
@@ -145,9 +151,8 @@ export default function AnotacoesScreen() {
     setEditItem(item);
     setWaNum(item.whatsapp || '');
     setDesc(item.descricao_anotacao || '');
-    const tzOffset = new Date(item.data_hora).getTimezoneOffset() * 60000;
-    const localISOTime = new Date(new Date(item.data_hora).getTime() - tzOffset).toISOString().slice(0, 16);
-    setDataHora(localISOTime);
+    // Exibe exatamente o que está no banco (UTC)
+    setDataHora(toInputValue(new Date(item.data_hora)));
     setStatus(item.status);
     setIsModalOpen(true);
   };
@@ -159,10 +164,10 @@ export default function AnotacoesScreen() {
     if (columns.length === 0) return;
 
     const startBoundary = new Date(columns[0]);
-    startBoundary.setHours(0, 0, 0, 0);
+    startBoundary.setUTCHours(0, 0, 0, 0);
 
     const endBoundary = new Date(columns[columns.length - 1]);
-    endBoundary.setHours(23, 59, 59, 999);
+    endBoundary.setUTCHours(23, 59, 59, 999);
 
     const { data } = await supabase
       .from('vw_anotacoes_com_contato')
@@ -209,7 +214,7 @@ export default function AnotacoesScreen() {
       const payload = {
         whatsapp: waNum,
         descricao_anotacao: desc,
-        data_hora: new Date(dataHora).toISOString(),
+        data_hora: inputToISO(dataHora),
         status: status,
         user_id: user.id
       };
@@ -268,19 +273,19 @@ export default function AnotacoesScreen() {
     // Se estiver soltando no mesmo dia, ignora
     const originalDate = new Date(note.data_hora);
     if (
-      originalDate.getDate() === targetDate.getDate() &&
-      originalDate.getMonth() === targetDate.getMonth() &&
-      originalDate.getFullYear() === targetDate.getFullYear()
+      originalDate.getUTCDate() === targetDate.getUTCDate() &&
+      originalDate.getUTCMonth() === targetDate.getUTCMonth() &&
+      originalDate.getUTCFullYear() === targetDate.getUTCFullYear()
     ) {
       return;
     }
 
     const newDate = new Date(targetDate);
-    newDate.setHours(
-      originalDate.getHours(),
-      originalDate.getMinutes(),
-      originalDate.getSeconds(),
-      originalDate.getMilliseconds()
+    newDate.setUTCHours(
+      originalDate.getUTCHours(),
+      originalDate.getUTCMinutes(),
+      originalDate.getUTCSeconds(),
+      originalDate.getUTCMilliseconds()
     );
 
     // Update state locally for immediate feedback
@@ -356,14 +361,14 @@ export default function AnotacoesScreen() {
           
           {columns.map((colDate, idx) => {
             const today = new Date();
-            const isToday = colDate.getDate() === today.getDate() && 
-                            colDate.getMonth() === today.getMonth() && 
-                            colDate.getFullYear() === today.getFullYear();
+            const isToday = colDate.getUTCDate() === today.getUTCDate() && 
+                            colDate.getUTCMonth() === today.getUTCMonth() && 
+                            colDate.getUTCFullYear() === today.getUTCFullYear();
             
-            // Filtramos as notas que pertencem a este dia específico
+            // Filtramos as notas que pertencem a este dia específico (UTC)
             const colStart = new Date(colDate);
             const colEnd = new Date(colDate);
-            colEnd.setHours(23, 59, 59, 999);
+            colEnd.setUTCHours(23, 59, 59, 999);
             
             const dayNotes = anotacoes.filter(a => {
               const dt = new Date(a.data_hora);
