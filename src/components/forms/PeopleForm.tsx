@@ -3,6 +3,8 @@ import { Loader2, AlertCircle, ChevronLeft, Save, CheckCircle2, Search, MapPin }
 import { supabase } from '../../lib/supabase';
 import { validateCPF, validateCNPJ, maskCPF, maskCNPJ, maskPhone, maskCEP } from '../../utils/validators';
 import DependentesSection from './DependentesSection';
+import ServicosSection from './ServicosSection';
+
 
 // ─── Tipos Exportados ─────────────────────────────────────────────────────────
 export interface Pessoa {
@@ -19,6 +21,7 @@ export interface Pessoa {
   longitude: number | null;
   housing_type: string | null;
   phone: string | null;
+  telefone_extra: string | null;
   destino: string | null;
   birth_date: string | null;
   email: string | null;
@@ -27,6 +30,7 @@ export interface Pessoa {
   facebook_url: string | null;
   instagram_url: string | null;
   reference: string | null;
+  mensagem_padrao?: string | null;
   notes: string | null;
   atendimento_humano: boolean;
   created_at: string;
@@ -40,8 +44,8 @@ export const PERSON_TYPES = ['Pessoa', 'Autoridade', 'Entidade', 'Empresa'];
 export const DEFAULT_FORM: Partial<Pessoa> = {
   person_type: 'Pessoa', full_name: '', pronoun: 'Sr.', address: '', address_number: '', cep: '', neighborhood: '', city: '',
   latitude: null, longitude: null,
-  housing_type: 'Própria', phone: '', destino: '', birth_date: '', email: '',
-  cpf: '', cnpj: '', facebook_url: '', instagram_url: '', reference: '', notes: '',
+  housing_type: 'Própria', phone: '', telefone_extra: '', destino: '', birth_date: '', email: '',
+  cpf: '', cnpj: '', facebook_url: '', instagram_url: '', reference: '', mensagem_padrao: '', notes: '',
   atendimento_humano: false
 };
 
@@ -336,14 +340,20 @@ const PeopleForm: React.FC<PeopleFormProps> = ({ initialData, mode, onClose, onS
               </div>
             )}
 
-            {/* Telefone / Destino / E-mail */}
+            {/* Telefone / Telefone Extra / E-mail */}
             <div className="col-span-1 md:col-span-6 lg:col-span-4">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Telefone</label>
               <input type="text" value={form.phone || ''} maxLength={15}
                 onChange={e => setForm({ ...form, phone: maskPhone(e.target.value) })}
                 className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
             </div>
-            <div className="col-span-1 md:col-span-6 lg:col-span-8">
+            <div className="col-span-1 md:col-span-6 lg:col-span-4">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Telefone Extra</label>
+              <input type="text" value={form.telefone_extra || ''} maxLength={15}
+                onChange={e => setForm({ ...form, telefone_extra: maskPhone(e.target.value) })}
+                className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="col-span-1 md:col-span-12 lg:col-span-4">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">E-mail</label>
               <input type="email" value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })}
                 className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
@@ -482,6 +492,12 @@ const PeopleForm: React.FC<PeopleFormProps> = ({ initialData, mode, onClose, onS
                 className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="col-span-1 md:col-span-12">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Referências/Mensagem de Aniversário</label>
+              <textarea value={form.mensagem_padrao || ''} onChange={e => setForm({ ...form, mensagem_padrao: e.target.value })} rows={2}
+                placeholder="Mensagem customizada. Use {nome} para o primeiro nome ou {nome_completo} para o nome completo."
+                className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="col-span-1 md:col-span-12">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Observações Gerais</label>
               <textarea value={form.notes || ''} onChange={e => setForm({ ...form, notes: e.target.value })} rows={3}
                 className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500" />
@@ -529,6 +545,10 @@ const PeopleForm: React.FC<PeopleFormProps> = ({ initialData, mode, onClose, onS
         <div className="max-w-4xl mt-2">
           <hr className="border-slate-100 dark:border-slate-800 mb-0" />
           <DependentesSection
+            pessoaId={pessoaId}
+            disabled={!dependentesEnabled}
+          />
+          <ServicosSection
             pessoaId={pessoaId}
             disabled={!dependentesEnabled}
           />

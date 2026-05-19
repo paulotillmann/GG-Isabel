@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Plus, Loader2, CheckCircle, MapPin,
   Pencil, Trash2, ChevronUp, ChevronDown, ChevronsUpDown,
-  Users, ShieldCheck, Building2, Briefcase, Tag, FileText
+  Users, ShieldCheck, Building2, Briefcase, Tag, FileText,
+  Gift, Cake, ToggleLeft, ToggleRight, Printer
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { maskPhone } from '../utils/validators';
+import { maskPhone, maskCPF, maskCNPJ } from '../utils/validators';
 import PeopleForm, { Pessoa, PERSON_TYPES } from '../components/forms/PeopleForm';
 import PeopleMapForm from '../components/forms/PeopleMapForm';
 import jsPDF from 'jspdf';
@@ -27,6 +28,7 @@ const PeopleScreen: React.FC = () => {
   const [filterType, setFilterType] = useState('');
   const [filterNeighborhood, setFilterNeighborhood] = useState('');
   const [filterCity, setFilterCity] = useState('');
+  const [filterDestino, setFilterDestino] = useState('');
   
   const uniqueNeighborhoods = React.useMemo(() => {
     return Array.from(new Set(people.map(p => p.neighborhood).filter(Boolean))) as string[];
@@ -34,6 +36,10 @@ const PeopleScreen: React.FC = () => {
 
   const uniqueCities = React.useMemo(() => {
     return Array.from(new Set(people.map(p => p.city).filter(Boolean))) as string[];
+  }, [people]);
+
+  const uniqueDestinos = React.useMemo(() => {
+    return Array.from(new Set(people.map(p => p.destino).filter(Boolean))) as string[];
   }, [people]);
   
   // Page mode state
@@ -51,6 +57,12 @@ const PeopleScreen: React.FC = () => {
     orientation: 'portrait' as 'portrait' | 'landscape',
   });
 
+  // Birthday Modal state
+  const [showBirthdayModal, setShowBirthdayModal] = useState(false);
+  const [birthdayList, setBirthdayList] = useState<any[]>([]);
+  const [sendingBirthday, setSendingBirthday] = useState<string | null>(null);
+  const [autoBirthdayActive, setAutoBirthdayActive] = useState(true);
+
   // ─── Auto-open form check (Vindo do Dashboard) ──────────────────────────────
   useEffect(() => {
     const autoAction = sessionStorage.getItem('autoOpenForm_pessoas');
@@ -65,6 +77,7 @@ const PeopleScreen: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [printingSelected, setPrintingSelected] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Pessoa; direction: 'asc' | 'desc' } | null>({
     key: 'full_name',
     direction: 'asc'
@@ -79,7 +92,43 @@ const PeopleScreen: React.FC = () => {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchSettings = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('system_settings').select('value').eq('key', 'auto_birthday_active').single();
+      if (data) {
+        setAutoBirthdayActive(data.value === 'true' || data.value === true);
+      }
+    } catch (err) {
+      console.error("Error fetching settings:", err);
+    }
+  }, []);
+
+  const toggleAutoBirthday = async () => {
+    const newValue = !autoBirthdayActive;
+    setAutoBirthdayActive(newValue);
+    try {
+      await supabase.from('system_settings').upsert({ key: 'auto_birthday_active', value: newValue ? 'true' : 'false' });
+    } catch (err) {
+      console.error("Error updating settings:", err);
+      setAutoBirthdayActive(!newValue);
+    }
+  };
+
+  const fetchBirthdays = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_aniversariantes_hoje');
+      if (error) throw error;
+      setBirthdayList(data || []);
+    } catch (err: any) {
+      console.error(err);
+    }
+  }, []);
+
+  useEffect(() => { 
+    fetchData(); 
+    fetchBirthdays();
+    fetchSettings();
+  }, [fetchData, fetchBirthdays, fetchSettings]);
 
   // ── Realtime subscription ──────────────────────────────────────────────
   useEffect(() => {
@@ -111,7 +160,7 @@ const PeopleScreen: React.FC = () => {
   const itemsPerPage = 8;
   
   // Reseta paginação na busca/filtro
-  useEffect(() => { setCurrentPage(1); }, [search, filterType, filterNeighborhood, filterCity]);
+  useEffect(() => { setCurrentPage(1); }, [search, filterType, filterNeighborhood, filterCity, filterDestino]);
 
   // Garante que ao mudar de "página" (abrir ou fechar form) o scroll volte ao topo automaticamente
   useEffect(() => {
@@ -123,14 +172,17 @@ const PeopleScreen: React.FC = () => {
     const q = search.toLowerCase();
     const matchSearch = p.full_name.toLowerCase().includes(q) ||
       (p.email && p.email.toLowerCase().includes(q)) ||
+      (p.phone && p.phone.includes(q)) ||
+      (p.telefone_extra && p.telefone_extra.includes(q)) ||
       (p.cpf && p.cpf.includes(q)) ||
       (p.cnpj && p.cnpj.includes(q));
       
     const matchType = filterType ? p.person_type === filterType : true;
     const matchNeighb = filterNeighborhood ? p.neighborhood === filterNeighborhood : true;
     const matchCity = filterCity ? p.city === filterCity : true;
+    const matchDestino = filterDestino ? p.destino === filterDestino : true;
 
-    return matchSearch && matchType && matchNeighb && matchCity;
+    return matchSearch && matchType && matchNeighb && matchCity && matchDestino;
   });
 
   // ── Ordenação ──────────────────────────────────────────────────────────
@@ -228,6 +280,603 @@ const PeopleScreen: React.FC = () => {
     const parts = ds.split('-');
     if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
     return ds; // fallback
+  };
+
+  const printFicha = async (person: Pessoa) => {
+    const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null].filter(Boolean).join(' / ');
+    
+    let addressLine = person.address || '';
+    if (person.address_number) addressLine += `, ${person.address_number}`;
+    if (person.neighborhood) addressLine += ` - ${person.neighborhood}`;
+    if (person.city) addressLine += ` - ${person.city}`;
+    if (person.cep) addressLine += ` (CEP: ${person.cep})`;
+
+    // Buscar dependentes e serviços
+    const [{ data: dependentesData }, { data: servicosData }] = await Promise.all([
+      supabase.from('dependentes').select('*').eq('pessoa_id', person.id).order('created_at', { ascending: true }),
+      supabase.from('servicos').select('*').eq('pessoa_id', person.id).order('service_date', { ascending: false })
+    ]);
+
+    const dependentes = dependentesData || [];
+    const servicos = servicosData || [];
+
+    let dependentesHtml = '';
+    if (dependentes.length > 0) {
+      dependentesHtml = `
+        <div class="section">
+          <div class="section-title">Dependentes</div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Nome Completo</th>
+                <th>Data Nasc.</th>
+                <th>Parentesco</th>
+                <th>Telefone</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dependentes.map(dep => `
+                <tr>
+                  <td>${dep.full_name}</td>
+                  <td>${formatDate(dep.birth_date) || '—'}</td>
+                  <td>${dep.kinship || '—'}</td>
+                  <td>${dep.phone ? maskPhone(dep.phone) : '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    let servicosHtml = '';
+    if (servicos.length > 0) {
+      servicosHtml = `
+        <div class="section">
+          <div class="section-title">Serviços e Atendimentos</div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Descrição</th>
+                <th>Atendido?</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${servicos.map(serv => `
+                <tr>
+                  <td>${formatDate(serv.service_date) || '—'}</td>
+                  <td>${serv.description || '—'}</td>
+                  <td>${serv.is_attended ? 'Sim' : 'Não'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Ficha Cadastral - ${person.full_name}</title>
+          <style>
+            @page { margin: 15mm; }
+            body { 
+              font-family: Arial, sans-serif; 
+              color: #333; 
+              margin: 0; 
+              padding: 0; 
+              font-size: 12px;
+            }
+            .container {
+              border: 2px solid #000;
+              padding: 20px;
+              border-radius: 8px;
+              max-width: 800px;
+              margin: 0 auto;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #000;
+              padding-bottom: 15px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 20px;
+              text-transform: uppercase;
+            }
+            .header p {
+              margin: 5px 0 0;
+              font-size: 12px;
+              color: #555;
+            }
+            .section {
+              margin-bottom: 15px;
+            }
+            .section-title {
+              background: #f4f4f4;
+              font-weight: bold;
+              padding: 6px 10px;
+              border: 1px solid #000;
+              border-radius: 4px;
+              margin-bottom: 10px;
+              text-transform: uppercase;
+              font-size: 11px;
+            }
+            .row {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 15px;
+              margin-bottom: 10px;
+            }
+            .field {
+              flex: 1;
+              min-width: 200px;
+            }
+            .label {
+              font-weight: bold;
+              font-size: 10px;
+              color: #666;
+              text-transform: uppercase;
+              margin-bottom: 2px;
+            }
+            .value {
+              font-size: 13px;
+              border-bottom: 1px solid #ccc;
+              padding-bottom: 2px;
+              min-height: 18px;
+            }
+            .full-width {
+              flex: 1 1 100%;
+            }
+            .data-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 5px;
+            }
+            .data-table th, .data-table td {
+              border: 1px solid #ccc;
+              padding: 6px 8px;
+              text-align: left;
+              font-size: 12px;
+            }
+            .data-table th {
+              background-color: #f9f9f9;
+              font-weight: bold;
+            }
+            @media print {
+              .container { border: none; padding: 0; max-width: 100%; }
+            }
+          </style>
+        </head>
+        <body onload="window.print()">
+          <div class="container">
+            <div class="header">
+              <h1>Ficha Cadastral</h1>
+              <p>Gabinete Vereadora Isabel - Cadastro Geral</p>
+            </div>
+            
+            <div class="section">
+              <div class="section-title">Dados Principais</div>
+              <div class="row">
+                <div class="field full-width">
+                  <div class="label">Nome Completo / Razão Social</div>
+                  <div class="value">${person.full_name || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">Tipo</div>
+                  <div class="value">${person.person_type || 'Pessoa'}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Tratamento</div>
+                  <div class="value">${person.pronoun || ''}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Nascimento</div>
+                  <div class="value">${formatDate(person.birth_date) || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">CPF</div>
+                  <div class="value">${person.cpf ? maskCPF(person.cpf) : ''}</div>
+                </div>
+                <div class="field">
+                  <div class="label">CNPJ</div>
+                  <div class="value">${person.cnpj ? maskCNPJ(person.cnpj) : ''}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Contato e Localidade</div>
+              <div class="row">
+                <div class="field full-width">
+                  <div class="label">Endereço Completo</div>
+                  <div class="value">${addressLine || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">Telefones</div>
+                  <div class="value">${telefones || ''}</div>
+                </div>
+                <div class="field">
+                  <div class="label">E-mail</div>
+                  <div class="value">${person.email || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">Destino</div>
+                  <div class="value">${person.destino || ''}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Ponto de Referência</div>
+                  <div class="value">${person.reference || ''}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Redes Sociais e Observações</div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">Instagram</div>
+                  <div class="value">${person.instagram_url || ''}</div>
+                </div>
+                <div class="field">
+                  <div class="label">Facebook</div>
+                  <div class="value">${person.facebook_url || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field full-width">
+                  <div class="label">Referências/Mensagem de Aniversário</div>
+                  <div class="value">${person.mensagem_padrao || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field full-width">
+                  <div class="label">Observações</div>
+                  <div class="value" style="min-height: 50px;">${person.notes || ''}</div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="field">
+                  <div class="label">Data de Cadastro</div>
+                  <div class="value">${formatDate(person.created_at?.split('T')[0]) || ''}</div>
+                </div>
+              </div>
+            </div>
+            
+            ${dependentesHtml}
+            ${servicosHtml}
+
+          </div>
+        </body>
+      </html>
+    `;
+    
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  };
+
+  const printSelectedFichas = async () => {
+    if (selectedIds.length === 0) return;
+    setPrintingSelected(true);
+    
+    const selectedPeople = people.filter(p => selectedIds.includes(p.id));
+    
+    const fullPeopleData = await Promise.all(selectedPeople.map(async (person) => {
+      const [{ data: dependentesData }, { data: servicosData }] = await Promise.all([
+        supabase.from('dependentes').select('*').eq('pessoa_id', person.id).order('created_at', { ascending: true }),
+        supabase.from('servicos').select('*').eq('pessoa_id', person.id).order('service_date', { ascending: false })
+      ]);
+      return { person, dependentes: dependentesData || [], servicos: servicosData || [] };
+    }));
+
+    let allFichasHtml = '';
+
+    fullPeopleData.forEach(({ person, dependentes, servicos }, index) => {
+      const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null].filter(Boolean).join(' / ');
+      
+      let addressLine = person.address || '';
+      if (person.address_number) addressLine += `, ${person.address_number}`;
+      if (person.neighborhood) addressLine += ` - ${person.neighborhood}`;
+      if (person.city) addressLine += ` - ${person.city}`;
+      if (person.cep) addressLine += ` (CEP: ${person.cep})`;
+
+      let dependentesHtml = '';
+      if (dependentes.length > 0) {
+        dependentesHtml = `
+          <div class="section">
+            <div class="section-title">Dependentes</div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nome Completo</th>
+                  <th>Data Nasc.</th>
+                  <th>Parentesco</th>
+                  <th>Telefone</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${dependentes.map((dep: any) => `
+                  <tr>
+                    <td>${dep.full_name}</td>
+                    <td>${formatDate(dep.birth_date) || '—'}</td>
+                    <td>${dep.kinship || '—'}</td>
+                    <td>${dep.phone ? maskPhone(dep.phone) : '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      let servicosHtml = '';
+      if (servicos.length > 0) {
+        servicosHtml = `
+          <div class="section">
+            <div class="section-title">Serviços e Atendimentos</div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição</th>
+                  <th>Atendido?</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${servicos.map((serv: any) => `
+                  <tr>
+                    <td>${formatDate(serv.service_date) || '—'}</td>
+                    <td>${serv.description || '—'}</td>
+                    <td>${serv.is_attended ? 'Sim' : 'Não'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      const pageBreak = index < fullPeopleData.length - 1 ? '<div class="page-break"></div>' : '';
+
+      allFichasHtml += `
+        <div class="ficha-container">
+          <div class="header">
+            <h1>Ficha Cadastral</h1>
+            <p>Gabinete Vereadora Isabel - Cadastro Geral</p>
+          </div>
+          
+          <div class="section">
+            <div class="section-title">Dados Principais</div>
+            <div class="row">
+              <div class="field full-width">
+                <div class="label">Nome Completo / Razão Social</div>
+                <div class="value">${person.full_name || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Tipo</div>
+                <div class="value">${person.person_type || 'Pessoa'}</div>
+              </div>
+              <div class="field">
+                <div class="label">Tratamento</div>
+                <div class="value">${person.pronoun || ''}</div>
+              </div>
+              <div class="field">
+                <div class="label">Nascimento</div>
+                <div class="value">${formatDate(person.birth_date) || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">CPF</div>
+                <div class="value">${person.cpf ? maskCPF(person.cpf) : ''}</div>
+              </div>
+              <div class="field">
+                <div class="label">CNPJ</div>
+                <div class="value">${person.cnpj ? maskCNPJ(person.cnpj) : ''}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Contato e Localidade</div>
+            <div class="row">
+              <div class="field full-width">
+                <div class="label">Endereço Completo</div>
+                <div class="value">${addressLine || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Telefones</div>
+                <div class="value">${telefones || ''}</div>
+              </div>
+              <div class="field">
+                <div class="label">E-mail</div>
+                <div class="value">${person.email || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Destino</div>
+                <div class="value">${person.destino || ''}</div>
+              </div>
+              <div class="field">
+                <div class="label">Ponto de Referência</div>
+                <div class="value">${person.reference || ''}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Redes Sociais e Observações</div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Instagram</div>
+                <div class="value">${person.instagram_url || ''}</div>
+              </div>
+              <div class="field">
+                <div class="label">Facebook</div>
+                <div class="value">${person.facebook_url || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field full-width">
+                <div class="label">Referências/Mensagem de Aniversário</div>
+                <div class="value">${person.mensagem_padrao || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field full-width">
+                <div class="label">Observações</div>
+                <div class="value" style="min-height: 50px;">${person.notes || ''}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Data de Cadastro</div>
+                <div class="value">${formatDate(person.created_at?.split('T')[0]) || ''}</div>
+              </div>
+            </div>
+          </div>
+          
+          ${dependentesHtml}
+          ${servicosHtml}
+        </div>
+        ${pageBreak}
+      `;
+    });
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Fichas Cadastrais - Lote</title>
+          <style>
+            @page { margin: 15mm; }
+            body { 
+              font-family: Arial, sans-serif; 
+              color: #333; 
+              margin: 0; 
+              padding: 0; 
+              font-size: 12px;
+              background-color: #f0f0f0;
+            }
+            .ficha-container {
+              border: 2px solid #000;
+              padding: 20px;
+              border-radius: 8px;
+              max-width: 800px;
+              margin: 20px auto;
+              background-color: #fff;
+              box-sizing: border-box;
+            }
+            .page-break {
+              page-break-after: always;
+            }
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #000;
+              padding-bottom: 15px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 20px;
+              text-transform: uppercase;
+            }
+            .header p {
+              margin: 5px 0 0;
+              font-size: 12px;
+              color: #555;
+            }
+            .section {
+              margin-bottom: 15px;
+            }
+            .section-title {
+              background: #f4f4f4;
+              font-weight: bold;
+              padding: 6px 10px;
+              border: 1px solid #000;
+              border-radius: 4px;
+              margin-bottom: 10px;
+              text-transform: uppercase;
+              font-size: 11px;
+            }
+            .row {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 15px;
+              margin-bottom: 10px;
+            }
+            .field {
+              flex: 1;
+              min-width: 200px;
+            }
+            .label {
+              font-weight: bold;
+              font-size: 10px;
+              color: #666;
+              text-transform: uppercase;
+              margin-bottom: 2px;
+            }
+            .value {
+              font-size: 13px;
+              border-bottom: 1px solid #ccc;
+              padding-bottom: 2px;
+              min-height: 18px;
+            }
+            .full-width {
+              flex: 1 1 100%;
+            }
+            .data-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 5px;
+            }
+            .data-table th, .data-table td {
+              border: 1px solid #ccc;
+              padding: 6px 8px;
+              text-align: left;
+              font-size: 12px;
+            }
+            .data-table th {
+              background-color: #f9f9f9;
+              font-weight: bold;
+            }
+            @media print {
+              body { background-color: #fff; margin: 0; }
+              .ficha-container { border: none; padding: 0; margin: 0; max-width: 100%; }
+              .page-break { margin-bottom: 0; }
+            }
+          </style>
+        </head>
+        <body onload="window.print()">
+          ${allFichasHtml}
+        </body>
+      </html>
+    `;
+    
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setPrintingSelected(false);
   };
 
   const renderPaginationInfo = () => {
@@ -348,6 +997,7 @@ const PeopleScreen: React.FC = () => {
     if (filterType) filterTexts.push(`Tipo: ${filterType}`);
     if (filterCity) filterTexts.push(`Cidade: ${filterCity}`);
     if (filterNeighborhood) filterTexts.push(`Bairro: ${filterNeighborhood}`);
+    if (filterDestino) filterTexts.push(`Destino: ${filterDestino}`);
     const filterString = filterTexts.length > 0 ? `Filtros aplicados - ${filterTexts.join(' | ')}` : 'Nenhum filtro aplicado (Todos os registros)';
     
     // Table
@@ -379,7 +1029,7 @@ const PeopleScreen: React.FC = () => {
         
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
-        doc.text("GABINETE VEREADOR NEGO", 14, 21);
+        doc.text("GABINETE VEREADORA ISABEL", 14, 21);
         
         doc.setFontSize(8);
         doc.text(filterString, 14, 27);
@@ -405,6 +1055,29 @@ const PeopleScreen: React.FC = () => {
     const pdfBlob = doc.output('blob');
     const pdfUrl = URL.createObjectURL(pdfBlob);
     window.open(pdfUrl, '_blank');
+  };
+
+  const handleOpenBirthdayModal = () => {
+    setShowBirthdayModal(true);
+    fetchBirthdays();
+  };
+
+  const handleSendWhatsApp = async (targetId?: string) => {
+    setSendingBirthday(targetId || 'all');
+    try {
+      const { data, error } = await supabase.functions.invoke('send-birthday-wpp', {
+        body: { targetId: targetId || 'all' }
+      });
+      
+      if (error) throw new Error(error.message || 'Falha ao enviar mensagem');
+      
+      showSuccess(`Mensagem enviada com sucesso para ${targetId ? 'o contato' : 'todos'}.`);
+    } catch (err: any) {
+      console.error(err);
+      alert('Erro ao disparar WhatsApp: ' + err.message);
+    } finally {
+      setSendingBirthday(null);
+    }
   };
 
   // ── Stats ──────────────────────────────────────────────────────────────
@@ -461,6 +1134,12 @@ const PeopleScreen: React.FC = () => {
             <FileText className="h-4 w-4 mr-2" /> Relatório
           </button>
           <button
+            onClick={handleOpenBirthdayModal}
+            className="flex items-center px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700 shadow-sm"
+          >
+            <Gift className="h-4 w-4 mr-2" /> Aniversariantes
+          </button>
+          <button
             onClick={() => setShowLabelModal(true)}
             className="flex items-center px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-200 dark:border-slate-700 shadow-sm"
           >
@@ -488,13 +1167,13 @@ const PeopleScreen: React.FC = () => {
           { label: 'Pessoas', type: 'Pessoa', value: stats.pessoa, color: 'text-blue-600 dark:text-blue-400', icon: Users },
           { label: 'Autoridades', type: 'Autoridade', value: stats.autoridade, color: 'text-purple-600 dark:text-purple-400', icon: ShieldCheck },
           { label: 'Entidades', type: 'Entidade', value: stats.entidade, color: 'text-emerald-600 dark:text-emerald-400', icon: Building2 },
-          { label: 'Empresas', type: 'Empresa', value: stats.empresa, color: 'text-amber-600 dark:text-amber-400', icon: Briefcase },
+          { label: 'Aniversariantes Hoje', type: 'Aniversariantes', action: handleOpenBirthdayModal, value: birthdayList.length, color: 'text-orange-500 dark:text-orange-400', icon: Gift },
         ].map((stat, i) => (
           <div 
             key={i} 
-            onClick={() => setFilterType(filterType === stat.type ? '' : stat.type)}
+            onClick={stat.action ? stat.action : () => setFilterType(filterType === stat.type ? '' : stat.type)}
             className={`bg-white dark:bg-[#1C2434] rounded-2xl p-5 border shadow-sm flex flex-col justify-between transition-colors relative overflow-hidden group cursor-pointer
-              ${filterType === stat.type ? 'border-blue-500 dark:border-blue-500 ring-1 ring-blue-500' : 'border-slate-200 dark:border-slate-800 hover:border-blue-500/50'}
+              ${stat.type !== 'Aniversariantes' && filterType === stat.type ? 'border-blue-500 dark:border-blue-500 ring-1 ring-blue-500' : 'border-slate-200 dark:border-slate-800 hover:border-blue-500/50'}
             `}
           >
             <div className="absolute top-1/2 -translate-y-1/2 -right-4 opacity-5 dark:opacity-10 pointer-events-none group-hover:scale-110 transition-transform duration-300">
@@ -566,21 +1245,44 @@ const PeopleScreen: React.FC = () => {
               <option value="">Todos os Bairros</option>
               {uniqueNeighborhoods.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
+            
+            <select
+              value={filterDestino}
+              onChange={(e) => setFilterDestino(e.target.value)}
+              className="w-full sm:w-40 px-3 py-2 border border-slate-300 dark:border-[#2C354A] rounded-lg bg-slate-50 dark:bg-[#243046] text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Todos os Destinos</option>
+              {uniqueDestinos.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
               {filtered.length} de {people.length} registros
             </div>
             {selectedIds.length > 0 && (
-              <button
-                onClick={() => setShowBulkDelete(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 rounded-lg text-sm font-medium transition-colors border border-red-200 dark:border-red-800/50"
-                title="Excluir selecionados"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Excluir ({selectedIds.length})</span>
-                <span className="sm:hidden">{selectedIds.length}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={printSelectedFichas}
+                  disabled={printingSelected}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-500/30 rounded-lg text-sm font-medium transition-colors border border-blue-200 dark:border-blue-800/50 disabled:opacity-50"
+                  title="Imprimir fichas dos selecionados"
+                >
+                  {printingSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{printingSelected ? 'Gerando...' : `Imprimir (${selectedIds.length})`}</span>
+                  <span className="sm:hidden">{selectedIds.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDelete(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-500/30 rounded-lg text-sm font-medium transition-colors border border-red-200 dark:border-red-800/50"
+                  title="Excluir selecionados"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Excluir ({selectedIds.length})</span>
+                  <span className="sm:hidden">{selectedIds.length}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -677,20 +1379,32 @@ const PeopleScreen: React.FC = () => {
                     <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-400">
                       {formatDate(p.birth_date)}
                     </td>
-                    <td className="py-4 px-6 text-right space-x-2">
-                       <button
-                         onClick={() => openEdit(p)}
-                         className="inline-flex items-center justify-center px-3 py-1.5 h-8 border border-slate-200 dark:border-slate-700/60 rounded text-xs font-semibold text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
-                       >
-                         <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
-                       </button>
-                       <button
-                         onClick={() => setDeleteId(p.id)}
-                         className="inline-flex items-center justify-center h-8 w-8 border border-slate-200 dark:border-slate-700/60 rounded text-slate-500 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                         title="Excluir"
-                       >
-                         <Trash2 className="h-4 w-4" />
-                       </button>
+                    <td className="py-4 px-6 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => printFicha(p)}
+                          className="inline-flex items-center justify-center h-8 w-8 border border-slate-200 dark:border-slate-700/60 rounded text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 transition-colors"
+                          title="Imprimir Ficha"
+                        >
+                          <Printer className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(p)}
+                          className="inline-flex items-center justify-center px-3 py-1.5 h-8 border border-slate-200 dark:border-slate-700/60 rounded text-xs font-semibold text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1.5" /> Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteId(p.id)}
+                          className="inline-flex items-center justify-center h-8 w-8 border border-slate-200 dark:border-slate-700/60 rounded text-slate-500 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -864,6 +1578,99 @@ const PeopleScreen: React.FC = () => {
                   <Tag className="h-4 w-4" />
                   Imprimir
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Aniversariantes */}
+      <AnimatePresence>
+        {showBirthdayModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 flex flex-col max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Gift className="h-5 w-5 text-blue-600" />
+                    Aniversariantes de Hoje
+                  </h3>
+                  <button
+                    onClick={toggleAutoBirthday}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      autoBirthdayActive 
+                        ? 'bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-500/30'
+                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                    title={autoBirthdayActive ? "Desativar envio automático" : "Ativar envio automático"}
+                  >
+                    {autoBirthdayActive ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                    Envio Automático (09h): {autoBirthdayActive ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+                <button onClick={() => setShowBirthdayModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                  <Plus className="h-5 w-5 rotate-45" />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto min-h-[200px] mb-6 border border-slate-200 dark:border-slate-700 rounded-lg">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0">
+                    <tr>
+                      <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Nome</th>
+                      <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Telefone</th>
+                      <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tipo</th>
+                      <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase text-right">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {birthdayList.length === 0 ? (
+                      <tr>
+                         <td colSpan={4} className="py-8 text-center text-slate-500 text-sm">Nenhum aniversariante hoje.</td>
+                      </tr>
+                    ) : (
+                      birthdayList.map(b => (
+                        <tr key={b.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-3 px-4 text-sm font-medium text-slate-900 dark:text-slate-200">{b.full_name}</td>
+                          <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-400">{b.phone ? maskPhone(b.phone) : 'Sem número'}</td>
+                          <td className="py-3 px-4 text-sm"><span className="px-2 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md text-xs">{b.tipo}</span></td>
+                          <td className="py-3 px-4 text-right">
+                             <button
+                               onClick={() => handleSendWhatsApp(b.id)}
+                               disabled={sendingBirthday === b.id || sendingBirthday === 'all' || !b.phone}
+                               className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 dark:text-emerald-400 text-xs font-medium rounded transition-colors disabled:opacity-50"
+                             >
+                               {sendingBirthday === b.id ? 'Enviando...' : 'WhatsApp'}
+                             </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex gap-3 justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  Total: {birthdayList.length} aniversariantes
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowBirthdayModal(false)} className="px-4 py-2 text-sm font-medium border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Fechar</button>
+                  {birthdayList.length > 0 && (
+                    <button 
+                      onClick={() => handleSendWhatsApp()}
+                      disabled={sendingBirthday !== null}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      {sendingBirthday === 'all' ? 'Enviando para todos...' : 'Disparar para Todos'}
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           </div>
