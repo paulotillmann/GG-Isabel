@@ -55,7 +55,7 @@ const OficioForm: React.FC<OficioFormProps> = ({ initialData, mode, onClose, onS
   const [error, setError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Partial<Oficio>>({
-    numero: '',
+    numero: null,
     data_emissao: new Date().toISOString().split('T')[0],
     destinatario_tratamento: 'Exmo. Senhor',
     destinatario_nome: '',
@@ -70,7 +70,10 @@ const OficioForm: React.FC<OficioFormProps> = ({ initialData, mode, onClose, onS
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'numero' ? (value === '' ? null : parseInt(value, 10)) : value
+    }));
   };
 
   const handleQuillChange = (value: string) => {
@@ -177,9 +180,9 @@ const OficioForm: React.FC<OficioFormProps> = ({ initialData, mode, onClose, onS
                 <div className="relative">
                   <Hash className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
-                    type="text"
+                    type="number"
                     name="numero"
-                    value={formData.numero || ''}
+                    value={formData.numero ?? ''}
                     onChange={handleChange}
                     placeholder="Gerado automaticamente"
                     className="w-full pl-9 pr-4 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"

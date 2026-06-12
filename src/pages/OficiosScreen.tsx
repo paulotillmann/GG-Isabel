@@ -31,10 +31,16 @@ const OficiosScreen: React.FC = () => {
 
   // Paginação / Ordenação
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
+  const ITEMS_PER_PAGE = 12;
   const [sortConfig, setSortConfig] = useState<{ key: keyof Oficio; direction: 'asc'|'desc' }>({
     key: 'data_emissao', direction: 'desc',
   });
+
+  // Reseta paginação na busca/filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus, filterDateStart, filterDateEnd]);
+
 
   const fetchData = async () => {
     setLoading(true);
@@ -65,9 +71,13 @@ const OficiosScreen: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return items.filter(i => {
+      const year = i.data_emissao ? new Date(i.data_emissao + 'T12:00:00').getFullYear() : '';
+      const numStr = i.numero !== null && i.numero !== undefined ? i.numero.toString() : '';
+      const formattedNum = numStr && year ? `${numStr}/${year}` : numStr;
       const matchSearch = 
         (i.assunto || '').toLowerCase().includes(q) ||
-        (i.numero || '').toLowerCase().includes(q) ||
+        numStr.includes(q) ||
+        formattedNum.includes(q) ||
         (i.destinatario_nome || '').toLowerCase().includes(q);
       const matchStatus = filterStatus ? i.status === filterStatus : true;
       const matchStart = filterDateStart ? i.data_emissao >= filterDateStart : true;
@@ -79,6 +89,11 @@ const OficiosScreen: React.FC = () => {
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
       const { key, direction } = sortConfig;
+      if (key === 'numero') {
+        const vA = a.numero ?? 0;
+        const vB = b.numero ?? 0;
+        return direction === 'asc' ? vA - vB : vB - vA;
+      }
       const vA = (a[key] ?? '').toString();
       const vB = (b[key] ?? '').toString();
       if (vA < vB) return direction === 'asc' ? -1 : 1;
@@ -88,6 +103,16 @@ const OficiosScreen: React.FC = () => {
   }, [filtered, sortConfig]);
 
   const paginated = sorted.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
+
+  const renderPaginationInfo = () => {
+    if (filtered.length === 0) return '0 registros';
+    const start = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+    const end = Math.min(currentPage * ITEMS_PER_PAGE, filtered.length);
+    return `Página ${currentPage} de ${totalPages} · Mostrar ${start}-${end} de ${filtered.length} registros`;
+  };
+
 
   const handleSort = (key: keyof Oficio) =>
     setSortConfig(prev => prev.key === key
@@ -249,7 +274,8 @@ const OficiosScreen: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead>
                   <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
@@ -338,7 +364,50 @@ const OficiosScreen: React.FC = () => {
                 </tbody>
               </table>
             </div>
-          )}
+
+            {/* Pagination Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-[#1A2234] border-t border-slate-200 dark:border-slate-800/60 flex items-center justify-between">
+              <div className="text-sm text-slate-500 dark:text-slate-400 hidden sm:block">
+                {renderPaginationInfo()}
+              </div>
+              <div className="flex items-center space-x-1">
+                <button 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  className="h-8 w-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                >
+                  &lt;
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let page = i + 1;
+                  if (totalPages > 5 && currentPage > 3) {
+                     page = currentPage - 2 + i;
+                     if (page > totalPages) page = totalPages - (4 - i);
+                  }
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`h-8 w-8 flex items-center justify-center rounded text-sm font-semibold transition-colors ${
+                        currentPage === page
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-slate-200 dark:border-slate-700/60 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+                <button 
+                  disabled={currentPage === totalPages || totalPages === 0}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  className="h-8 w-8 flex items-center justify-center rounded border border-slate-200 dark:border-slate-700/60 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+          </>)}
         </div>
       </div>
     </>

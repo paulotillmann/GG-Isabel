@@ -3,7 +3,7 @@ import {
   ChevronLeft, Save, Loader2, AlertCircle,
   Calendar, Clock, MapPin, Users, FileText, Bell, Tag, Phone,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchFullTable } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -81,9 +81,9 @@ const AgendaForm: React.FC<AgendaFormProps> = ({ initialData, mode, onClose, onS
   const [lembrar, setLembrar]           = useState(initialData?.lembrar ?? false);
 
   useEffect(() => {
-    supabase.from('pessoa').select('id, full_name, person_type').order('full_name').then(({ data }) => {
-      setPessoas((data ?? []) as PessoaOption[]);
-    });
+    fetchFullTable<PessoaOption>('pessoa', 'id, full_name, person_type', 'full_name', { ascending: true })
+      .then((data) => setPessoas(data))
+      .catch((err) => console.error("Erro ao carregar pessoas para o formulário de agenda:", err));
   }, []);
 
   const filteredPessoas = pessoas.filter(p =>

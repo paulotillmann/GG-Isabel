@@ -22,6 +22,7 @@ export interface Pessoa {
   housing_type: string | null;
   phone: string | null;
   telefone_extra: string | null;
+  phone_extra: string | null;
   destino: string | null;
   birth_date: string | null;
   email: string | null;
@@ -44,7 +45,7 @@ export const PERSON_TYPES = ['Pessoa', 'Autoridade', 'Entidade', 'Empresa'];
 export const DEFAULT_FORM: Partial<Pessoa> = {
   person_type: 'Pessoa', full_name: '', pronoun: 'Sr.', address: '', address_number: '', cep: '', neighborhood: '', city: '',
   latitude: null, longitude: null,
-  housing_type: 'Própria', phone: '', telefone_extra: '', destino: '', birth_date: '', email: '',
+  housing_type: 'Própria', phone: '', telefone_extra: '', phone_extra: '', destino: '', birth_date: '', email: '',
   cpf: '', cnpj: '', facebook_url: '', instagram_url: '', reference: '', mensagem_padrao: '', notes: '',
   atendimento_humano: false
 };

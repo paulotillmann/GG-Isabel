@@ -1,5 +1,6 @@
 import React from 'react';
 import { Oficio } from '../../types/oficio';
+import logoCamara from '../../assets/logos/logo_camaramunicipal-oficial.png';
 
 interface OficioPrintProps {
   oficio: Oficio | null;
@@ -22,12 +23,44 @@ const OficioPrint: React.FC<OficioPrintProps> = ({ oficio }) => {
     return `${dia} de ${mes} de ${ano}`;
   };
 
+  const getAnoOficio = (dataStr?: string | null) => {
+    if (!dataStr) return new Date().getFullYear();
+    return new Date(dataStr + 'T12:00:00').getFullYear();
+  };
+
+  const renderNumeroOficio = () => {
+    if (oficio.numero === null || oficio.numero === undefined) return '';
+    const numStr = oficio.numero.toString();
+    const hasYear = /\/\d{4}$/.test(numStr);
+    const ano = getAnoOficio(oficio.data_emissao);
+    let baseNumero = numStr;
+    if (!baseNumero.toLowerCase().startsWith('ofício')) {
+      baseNumero = `Ofício n. ${baseNumero}`;
+    }
+    return hasYear ? baseNumero : `${baseNumero}/${ano}`;
+  };
+
   return (
     <div id="printable-oficio" className="hidden print:block bg-white text-black p-10 font-serif max-w-[21cm] mx-auto min-h-[29.7cm] print:min-h-0 print:m-0 print:p-0">
 
+      {/* Cabeçalho Oficial */}
+      <div className="flex flex-col items-center justify-center text-center mb-8 pb-2">
+        <img 
+          src={logoCamara} 
+          alt="Brasão" 
+          className="h-20 w-auto mb-2 object-contain" 
+        />
+        <div className="font-bold text-sm tracking-wider uppercase">
+          Câmara Municipal de Araguari
+        </div>
+        <div className="font-bold text-[10px] tracking-wider uppercase mt-0.5">
+          Minas Gerais
+        </div>
+      </div>
+
       {/* Número do Ofício */}
       <div className="mb-6 font-bold text-lg uppercase">
-        {oficio.numero}
+        {renderNumeroOficio()}
       </div>
 
       {/* Local e Data */}

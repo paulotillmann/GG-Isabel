@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Users, CalendarDays, StickyNote, TrendingUp, Calendar, ChevronRight, Loader2, PlusCircle, FileText, ChevronLeft, Clock, MapPin, Bell, MessageSquare } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchFullTable } from '../lib/supabase';
 import { AgendaItem } from '../components/forms/AgendaForm';
 
 interface DashboardStats {
@@ -71,8 +71,7 @@ const Dashboard: React.FC = () => {
       setLoading(true);
       try {
         // Person Data
-        const { data: pessoaData, error: pessoaError } = await supabase.from('pessoa').select('created_at');
-        if (pessoaError) throw pessoaError;
+        const pessoaData = await fetchFullTable('pessoa', 'created_at');
         
         // Requerimentos Count
         const { count: reqCount, error: reqError } = await supabase.from('requerimento').select('*', { count: 'exact', head: true });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchFullTable } from '../lib/supabase';
 import {
   MessageSquare, Search, Clock, PlayCircle, CheckCircle, User, Phone,
   ChevronDown, ChevronUp, MessagesSquare, Loader2, Calendar, Laptop, Frown,
@@ -65,27 +65,31 @@ const AtendimentoScreen: React.FC = () => {
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     
-    const [atendRes, pessoasRes] = await Promise.all([
-      supabase.from('atendimento').select('*').order('created_at', { ascending: false }),
-      supabase.from('pessoa').select('id, phone, full_name, atendimento_humano')
-    ]);
-    
-    if (atendRes.error) {
-      console.error("Erro ao buscar atendimentos:", atendRes.error);
-    } else {
-      setAtendimentos(atendRes.data as Atendimento[]);
-    }
+    try {
+      const [atendRes, pessoasResData] = await Promise.all([
+        supabase.from('atendimento').select('*').order('created_at', { ascending: false }),
+        fetchFullTable<PessoaMapInfo>('pessoa', 'id, phone, full_name, atendimento_humano')
+      ]);
+      
+      if (atendRes.error) {
+        console.error("Erro ao buscar atendimentos:", atendRes.error);
+      } else {
+        setAtendimentos(atendRes.data as Atendimento[]);
+      }
 
-    if (!pessoasRes.error && pessoasRes.data) {
-      const pMap: Record<string, PessoaMapInfo> = {};
-      pessoasRes.data.forEach(p => {
-        if (p.phone && p.full_name) {
-          const clean = p.phone.replace(/\D/g, '');
-          pMap[clean] = p as PessoaMapInfo;
-          pMap[p.phone] = p as PessoaMapInfo;
-        }
-      });
-      setPessoasMap(pMap);
+      if (pessoasResData) {
+        const pMap: Record<string, PessoaMapInfo> = {};
+        pessoasResData.forEach(p => {
+          if (p.phone && p.full_name) {
+            const clean = p.phone.replace(/\D/g, '');
+            pMap[clean] = p;
+            pMap[p.phone] = p;
+          }
+        });
+        setPessoasMap(pMap);
+      }
+    } catch (error) {
+      console.error("Erro ao buscar dados de atendimentos/pessoas:", error);
     }
 
     if (showLoading) setLoading(false);

@@ -3,7 +3,7 @@ import {
   ChevronLeft, Save, Loader2, AlertCircle,
   FileText, Calendar, Hash, Users, MessageSquare, ClipboardList,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase, fetchFullTable } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -76,8 +76,9 @@ const RequerimentoForm: React.FC<RequerimentoFormProps> = ({ initialData, mode, 
   const [info, setInfo]               = useState(initialData?.informacoes_adicionais ?? '');
 
   useEffect(() => {
-    supabase.from('pessoa').select('id, full_name, person_type').order('full_name')
-      .then(({ data }) => setPessoas((data ?? []) as PessoaOption[]));
+    fetchFullTable<PessoaOption>('pessoa', 'id, full_name, person_type', 'full_name', { ascending: true })
+      .then((data) => setPessoas(data))
+      .catch((err) => console.error("Erro ao carregar pessoas para o formulário de requerimento:", err));
   }, []);
 
   const filteredPessoas = pessoas.filter(p =>

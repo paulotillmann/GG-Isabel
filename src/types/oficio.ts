@@ -1,6 +1,6 @@
 export interface Oficio {
   id: string;
-  numero: string;
+  numero: number | null;
   data_emissao: string;
   destinatario_tratamento: string;
   destinatario_nome: string;

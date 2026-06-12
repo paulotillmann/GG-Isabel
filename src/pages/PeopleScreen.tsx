@@ -6,7 +6,7 @@ import {
   Users, ShieldCheck, Building2, Briefcase, Tag, FileText,
   Gift, Cake, ToggleLeft, ToggleRight, Printer
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, fetchFullTable } from '../lib/supabase';
 import { maskPhone, maskCPF, maskCNPJ } from '../utils/validators';
 import PeopleForm, { Pessoa, PERSON_TYPES } from '../components/forms/PeopleForm';
 import PeopleMapForm from '../components/forms/PeopleMapForm';
@@ -87,9 +87,14 @@ const PeopleScreen: React.FC = () => {
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('pessoa').select('*').order('created_at', { ascending: false });
-    setPeople((data ?? []) as Pessoa[]);
-    setLoading(false);
+    try {
+      const data = await fetchFullTable<Pessoa>('pessoa', '*');
+      setPeople(data);
+    } catch (err) {
+      console.error("Erro ao carregar pessoas:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const fetchSettings = useCallback(async () => {
@@ -174,6 +179,7 @@ const PeopleScreen: React.FC = () => {
       (p.email && p.email.toLowerCase().includes(q)) ||
       (p.phone && p.phone.includes(q)) ||
       (p.telefone_extra && p.telefone_extra.includes(q)) ||
+      (p.phone_extra && p.phone_extra.includes(q)) ||
       (p.cpf && p.cpf.includes(q)) ||
       (p.cnpj && p.cnpj.includes(q));
       
@@ -283,7 +289,7 @@ const PeopleScreen: React.FC = () => {
   };
 
   const printFicha = async (person: Pessoa) => {
-    const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null].filter(Boolean).join(' / ');
+    const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null, person.phone_extra ? maskPhone(person.phone_extra) : null].filter(Boolean).join(' / ');
     
     let addressLine = person.address || '';
     if (person.address_number) addressLine += `, ${person.address_number}`;
@@ -586,7 +592,7 @@ const PeopleScreen: React.FC = () => {
     let allFichasHtml = '';
 
     fullPeopleData.forEach(({ person, dependentes, servicos }, index) => {
-      const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null].filter(Boolean).join(' / ');
+      const telefones = [person.phone ? maskPhone(person.phone) : null, person.telefone_extra ? maskPhone(person.telefone_extra) : null, person.phone_extra ? maskPhone(person.phone_extra) : null].filter(Boolean).join(' / ');
       
       let addressLine = person.address || '';
       if (person.address_number) addressLine += `, ${person.address_number}`;
@@ -1004,7 +1010,7 @@ const PeopleScreen: React.FC = () => {
     const tableData = sorted.map(p => [
       p.full_name || '',
       p.person_type || '',
-      p.phone ? maskPhone(p.phone) : '',
+      [p.phone ? maskPhone(p.phone) : '', p.telefone_extra ? maskPhone(p.telefone_extra) : '', p.phone_extra ? maskPhone(p.phone_extra) : ''].filter(Boolean).join(' / '),
       p.address || '',
       p.neighborhood || '',
       p.city || '',
