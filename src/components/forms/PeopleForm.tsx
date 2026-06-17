@@ -198,6 +198,8 @@ const PeopleForm: React.FC<PeopleFormProps> = ({ initialData, mode, onClose, onS
     };
     delete payload.id;
     delete payload.created_at;
+    delete payload.dependentes;
+    delete payload.servicos;
 
     if (mode === 'edit' && initialData?.id) {
       // ── Edição: salva e chama onSuccess normalmente ──────────────────────────
