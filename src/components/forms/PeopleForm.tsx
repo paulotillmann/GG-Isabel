@@ -36,6 +36,7 @@ export interface Pessoa {
   atendimento_humano: boolean;
   created_at: string;
   updated_at?: string;
+  dependentes?: any[];
 }
 
 export const PRONOMES = ['Sr.', 'Sra.', 'Dr.', 'Dra.', 'Prof.', 'Profa.', 'Vereador', 'Prefeito', 'Exmo', 'Exma', 'Ilmo', 'Ilma'];

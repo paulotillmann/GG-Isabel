@@ -21,6 +21,21 @@ const LABEL_SIZES = [
   { id: '6187', name: 'Pimaco 6187 (44,45 x 12,7 mm)', width: 44.45, height: 12.7 },
 ];
 
+const MONTHS = [
+  { value: '01', label: 'Janeiro' },
+  { value: '02', label: 'Fevereiro' },
+  { value: '03', label: 'Março' },
+  { value: '04', label: 'Abril' },
+  { value: '05', label: 'Maio' },
+  { value: '06', label: 'Junho' },
+  { value: '07', label: 'Julho' },
+  { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Setembro' },
+  { value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' },
+  { value: '12', label: 'Dezembro' }
+];
+
 const PeopleScreen: React.FC = () => {
   const [people, setPeople] = useState<Pessoa[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +44,7 @@ const PeopleScreen: React.FC = () => {
   const [filterNeighborhood, setFilterNeighborhood] = useState('');
   const [filterCity, setFilterCity] = useState('');
   const [filterDestino, setFilterDestino] = useState('');
+  const [filterBirthdayMonth, setFilterBirthdayMonth] = useState('');
   
   const uniqueNeighborhoods = React.useMemo(() => {
     return Array.from(new Set(people.map(p => p.neighborhood).filter(Boolean))) as string[];
@@ -88,7 +104,7 @@ const PeopleScreen: React.FC = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchFullTable<Pessoa>('pessoa', '*');
+      const data = await fetchFullTable<Pessoa>('pessoa', '*, dependentes(*)');
       setPeople(data);
     } catch (err) {
       console.error("Erro ao carregar pessoas:", err);
@@ -137,7 +153,7 @@ const PeopleScreen: React.FC = () => {
 
   // ── Realtime subscription ──────────────────────────────────────────────
   useEffect(() => {
-    const channel = supabase
+    const channelPessoa = supabase
       .channel('realtime:pessoa')
       .on(
         'postgres_changes',
@@ -147,7 +163,7 @@ const PeopleScreen: React.FC = () => {
             setPeople((prev) => [payload.new as Pessoa, ...prev]);
           } else if (payload.eventType === 'UPDATE') {
             setPeople((prev) =>
-              prev.map((p) => (p.id === (payload.new as Pessoa).id ? (payload.new as Pessoa) : p))
+              prev.map((p) => (p.id === (payload.new as Pessoa).id ? { ...(payload.new as Pessoa), dependentes: p.dependentes } : p))
             );
           } else if (payload.eventType === 'DELETE') {
             setPeople((prev) => prev.filter((p) => p.id !== (payload.old as Pessoa).id));
@@ -156,16 +172,35 @@ const PeopleScreen: React.FC = () => {
       )
       .subscribe();
 
+    const channelDependentes = supabase
+      .channel('realtime:dependentes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dependentes' },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channelPessoa);
+      supabase.removeChannel(channelDependentes);
     };
-  }, []);
+  }, [fetchData]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
   
   // Reseta paginação na busca/filtro
-  useEffect(() => { setCurrentPage(1); }, [search, filterType, filterNeighborhood, filterCity, filterDestino]);
+  useEffect(() => { setCurrentPage(1); }, [search, filterType, filterNeighborhood, filterCity, filterDestino, filterBirthdayMonth]);
+
+  // Ao selecionar um mês de aniversário, define a ordenação por data de nascimento como padrão (crescente)
+  useEffect(() => {
+    if (filterBirthdayMonth) {
+      setSortConfig({ key: 'birth_date', direction: 'asc' });
+    }
+  }, [filterBirthdayMonth]);
 
   // Garante que ao mudar de "página" (abrir ou fechar form) o scroll volte ao topo automaticamente
   useEffect(() => {
@@ -188,7 +223,30 @@ const PeopleScreen: React.FC = () => {
     const matchCity = filterCity ? p.city === filterCity : true;
     const matchDestino = filterDestino ? p.destino === filterDestino : true;
 
-    return matchSearch && matchType && matchNeighb && matchCity && matchDestino;
+    // Filtro de aniversariantes por mês independente do ano (busca no titular e dependentes)
+    let matchBirthdayMonth = true;
+    if (filterBirthdayMonth) {
+      let titularMatches = false;
+      if (p.birth_date) {
+        const parts = p.birth_date.split('-');
+        if (parts.length === 3) {
+          titularMatches = parts[1] === filterBirthdayMonth;
+        }
+      }
+
+      let dependentMatches = false;
+      if (p.dependentes && p.dependentes.length > 0) {
+        dependentMatches = p.dependentes.some((dep: any) => {
+          if (!dep.birth_date) return false;
+          const parts = dep.birth_date.split('-');
+          return parts.length === 3 && parts[1] === filterBirthdayMonth;
+        });
+      }
+
+      matchBirthdayMonth = titularMatches || dependentMatches;
+    }
+
+    return matchSearch && matchType && matchNeighb && matchCity && matchDestino && matchBirthdayMonth;
   });
 
   // ── Ordenação ──────────────────────────────────────────────────────────
@@ -196,6 +254,42 @@ const PeopleScreen: React.FC = () => {
     if (!sortConfig) return 0;
     const { key, direction } = sortConfig;
     
+    // Tratamento especial para ordenação por data de nascimento
+    if (key === 'birth_date') {
+      if (!a.birth_date) return direction === 'asc' ? 1 : -1;
+      if (!b.birth_date) return direction === 'asc' ? -1 : 1;
+      
+      const partsA = a.birth_date.split('-');
+      const partsB = b.birth_date.split('-');
+      
+      if (partsA.length === 3 && partsB.length === 3) {
+        // Se houver um mês filtrado ativo, a ordenação foca no dia do aniversário (parts[2])
+        if (filterBirthdayMonth) {
+          const dayA = parseInt(partsA[2], 10);
+          const dayB = parseInt(partsB[2], 10);
+          if (dayA !== dayB) {
+            return direction === 'asc' ? dayA - dayB : dayB - dayA;
+          }
+          // Em caso de empate no dia, desempatar por ano
+          const yearA = parseInt(partsA[0], 10);
+          const yearB = parseInt(partsB[0], 10);
+          if (yearA !== yearB) {
+            return direction === 'asc' ? yearA - yearB : yearB - yearA;
+          }
+        } else {
+          // Ordenação completa de data (ano-mês-dia)
+          const dateA = new Date(a.birth_date).getTime();
+          const dateB = new Date(b.birth_date).getTime();
+          if (dateA !== dateB) {
+            return direction === 'asc' ? dateA - dateB : dateB - dateA;
+          }
+        }
+      }
+      
+      // Fallback para nome completo em caso de datas idênticas ou formatos inválidos
+      return (a.full_name || '').localeCompare(b.full_name || '');
+    }
+
     // Pegar valores e tratar nulls
     const valA = (a[key] || '').toString().toLowerCase();
     const valB = (b[key] || '').toString().toLowerCase();
@@ -1041,7 +1135,7 @@ const PeopleScreen: React.FC = () => {
         doc.text(filterString, 14, 27);
 
         // Footer on every page
-        let str = `Página ${doc.internal.getNumberOfPages()}`;
+        let str = `Página ${doc.getNumberOfPages()}`;
         if (typeof doc.putTotalPages === 'function') {
           str = str + ' de {total_pages_count_string}';
         }
@@ -1260,6 +1354,15 @@ const PeopleScreen: React.FC = () => {
               <option value="">Todos os Destinos</option>
               {uniqueDestinos.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
+
+            <select
+              value={filterBirthdayMonth}
+              onChange={(e) => setFilterBirthdayMonth(e.target.value)}
+              className="w-full sm:w-44 px-3 py-2 border border-slate-300 dark:border-[#2C354A] rounded-lg bg-slate-50 dark:bg-[#243046] text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Aniversariante (Mês)</option>
+              {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-sm font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">
@@ -1332,7 +1435,14 @@ const PeopleScreen: React.FC = () => {
                   </div>
                 </th>
                 <th className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Telefone</th>
-                <th className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Nascimento</th>
+                <th 
+                  className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider cursor-pointer group hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                  onClick={() => handleSort('birth_date')}
+                >
+                  <div className="flex items-center">
+                    Nascimento {renderSortIcon('birth_date')}
+                  </div>
+                </th>
                 <th className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Ação</th>
               </tr>
             </thead>
