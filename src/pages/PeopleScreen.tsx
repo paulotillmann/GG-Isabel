@@ -254,6 +254,18 @@ const PeopleScreen: React.FC = () => {
     if (!sortConfig) return 0;
     const { key, direction } = sortConfig;
     
+    // Tratamento especial para ordenação por envio de mensagem de aniversário
+    if (key === 'niver_mensagem_enviada_em') {
+      if (!a.niver_mensagem_enviada_em) return direction === 'asc' ? 1 : -1;
+      if (!b.niver_mensagem_enviada_em) return direction === 'asc' ? -1 : 1;
+      const dateA = new Date(a.niver_mensagem_enviada_em).getTime();
+      const dateB = new Date(b.niver_mensagem_enviada_em).getTime();
+      if (dateA !== dateB) {
+        return direction === 'asc' ? dateA - dateB : dateB - dateA;
+      }
+      return (a.full_name || '').localeCompare(b.full_name || '');
+    }
+
     // Tratamento especial para ordenação por data de nascimento
     if (key === 'birth_date') {
       if (!a.birth_date) return direction === 'asc' ? 1 : -1;
@@ -380,6 +392,20 @@ const PeopleScreen: React.FC = () => {
     const parts = ds.split('-');
     if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
     return ds; // fallback
+  };
+
+  const formatDateTime = (iso?: string | null) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch {
+      return '—';
+    }
   };
 
   const printFicha = async (person: Pessoa) => {
@@ -1443,19 +1469,27 @@ const PeopleScreen: React.FC = () => {
                     Nascimento {renderSortIcon('birth_date')}
                   </div>
                 </th>
+                <th 
+                  className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider cursor-pointer group hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                  onClick={() => handleSort('niver_mensagem_enviada_em')}
+                >
+                  <div className="flex items-center">
+                    Msg. Aniversário {renderSortIcon('niver_mensagem_enviada_em')}
+                  </div>
+                </th>
                 <th className="py-4 px-6 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Ação</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-20 text-center">
+                  <td colSpan={9} className="py-20 text-center">
                     <Loader2 className="h-8 w-8 text-blue-600 animate-spin mx-auto" />
                   </td>
                 </tr>
               ) : paginated.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500 dark:text-slate-400 text-sm">
+                  <td colSpan={9} className="py-12 text-center text-slate-500 dark:text-slate-400 text-sm">
                     Nenhum registro encontrado.
                   </td>
                 </tr>
@@ -1494,6 +1528,16 @@ const PeopleScreen: React.FC = () => {
                     </td>
                     <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-400">
                       {formatDate(p.birth_date)}
+                    </td>
+                    <td className="py-4 px-6 text-sm whitespace-nowrap">
+                      {p.niver_mensagem_enviada_em ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-lg font-medium text-xs border border-emerald-200 dark:border-emerald-800/30 shadow-sm">
+                          <CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                          {formatDateTime(p.niver_mensagem_enviada_em)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-600 font-medium">—</span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end space-x-2">
@@ -1708,7 +1752,7 @@ const PeopleScreen: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 flex flex-col max-h-[90vh]"
+              className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 flex flex-col max-h-[90vh]"
             >
               <div className="flex items-center justify-between mb-6">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -1741,13 +1785,14 @@ const PeopleScreen: React.FC = () => {
                       <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Nome</th>
                       <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Telefone</th>
                       <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tipo</th>
+                      <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Envio</th>
                       <th className="py-3 px-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase text-right">Ação</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {birthdayList.length === 0 ? (
                       <tr>
-                         <td colSpan={4} className="py-8 text-center text-slate-500 text-sm">Nenhum aniversariante hoje.</td>
+                         <td colSpan={5} className="py-8 text-center text-slate-500 text-sm">Nenhum aniversariante hoje.</td>
                       </tr>
                     ) : (
                       birthdayList.map(b => (
@@ -1755,6 +1800,16 @@ const PeopleScreen: React.FC = () => {
                           <td className="py-3 px-4 text-sm font-medium text-slate-900 dark:text-slate-200">{b.full_name}</td>
                           <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-400">{b.phone ? maskPhone(b.phone) : 'Sem número'}</td>
                           <td className="py-3 px-4 text-sm"><span className="px-2 py-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-md text-xs">{b.tipo}</span></td>
+                          <td className="py-3 px-4 text-sm">
+                            {b.niver_mensagem_enviada_em ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-lg font-medium text-xs border border-emerald-200 dark:border-emerald-800/30 shadow-sm">
+                                <CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                                {formatDateTime(b.niver_mensagem_enviada_em)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-600 font-medium">—</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-right">
                              <button
                                onClick={() => handleSendWhatsApp(b.id)}

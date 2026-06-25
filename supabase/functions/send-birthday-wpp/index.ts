@@ -101,9 +101,16 @@ async function processBirthdays(targetId?: string) {
       
       const res = await sendWhatsApp(person.phone, person.full_name, person.mensagem_padrao);
       
+      const tableName = person.tipo === 'Pessoa' ? 'pessoa' : 'dependentes';
+      
+      await supabase
+        .from(tableName)
+        .update({ niver_mensagem_enviada_em: new Date().toISOString() })
+        .eq('id', person.id);
+      
       await supabase.from('activity_logs').insert({
         action: 'WHATSAPP_ENVIO',
-        table_name: person.tipo === 'Pessoa' ? 'pessoa' : 'dependentes',
+        table_name: tableName,
         record_id: person.id,
         description: `Mensagem de aniversário enviada para ${person.full_name}`,
         metadata: { phone: person.phone, evolution_response: res }

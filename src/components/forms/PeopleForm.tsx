@@ -34,6 +34,7 @@ export interface Pessoa {
   mensagem_padrao?: string | null;
   notes: string | null;
   atendimento_humano: boolean;
+  niver_mensagem_enviada_em?: string | null;
   created_at: string;
   updated_at?: string;
   dependentes?: any[];
