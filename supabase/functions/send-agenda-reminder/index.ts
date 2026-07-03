@@ -123,7 +123,6 @@ async function processReminders() {
   let query = supabase
     .from("agenda")
     .select("*, pessoa(full_name)")
-    .eq("lembrar", true)
     .eq("lembrete_enviado", false)
     .eq("data", today)
     .gte("horario_inicio", currentTimeStr)
@@ -134,7 +133,6 @@ async function processReminders() {
     query = supabase
       .from("agenda")
       .select("*, pessoa(full_name)")
-      .eq("lembrar", true)
       .eq("lembrete_enviado", false)
       .eq("data", today)
       .gte("horario_inicio", currentTimeStr);
