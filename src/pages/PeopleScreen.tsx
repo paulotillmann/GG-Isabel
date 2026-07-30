@@ -207,6 +207,59 @@ const PeopleScreen: React.FC = () => {
     document.getElementById('main-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' });
   }, [showForm]);
   
+  // Helper para verificar casamento de mês de aniversário (titular e dependentes)
+  const getBirthdayMonthMatch = useCallback((p: Pessoa, targetMonth: string) => {
+    if (!targetMonth) return { matches: true, titularMatches: false, matchingDeps: [] as { name: string; birth_date: string; day: number }[], sortDay: 99 };
+
+    let titularMatches = false;
+    let titularDay = 99;
+    if (p.birth_date) {
+      const parts = p.birth_date.split(/[-/]/);
+      if (parts.length === 3) {
+        const yearFirst = parts[0].length === 4;
+        const month = parts[1];
+        if (month.padStart(2, '0') === targetMonth) {
+          titularMatches = true;
+          titularDay = parseInt(yearFirst ? parts[2] : parts[0], 10);
+        }
+      }
+    }
+
+    const matchingDeps: { name: string; birth_date: string; day: number }[] = [];
+    if (p.dependentes && p.dependentes.length > 0) {
+      p.dependentes.forEach((dep: any) => {
+        if (!dep.birth_date) return;
+        const parts = dep.birth_date.split(/[-/]/);
+        if (parts.length === 3) {
+          const yearFirst = parts[0].length === 4;
+          const month = parts[1];
+          if (month.padStart(2, '0') === targetMonth) {
+            const day = parseInt(yearFirst ? parts[2] : parts[0], 10);
+            matchingDeps.push({
+              name: dep.full_name || 'Dependente',
+              birth_date: dep.birth_date,
+              day: isNaN(day) ? 99 : day,
+            });
+          }
+        }
+      });
+    }
+
+    let sortDay = 99;
+    if (titularMatches) {
+      sortDay = titularDay;
+    } else if (matchingDeps.length > 0) {
+      sortDay = Math.min(...matchingDeps.map(d => d.day));
+    }
+
+    return {
+      matches: titularMatches || matchingDeps.length > 0,
+      titularMatches,
+      matchingDeps,
+      sortDay,
+    };
+  }, []);
+
   // ── Filtro ─────────────────────────────────────────────────────────────
   const filtered = people.filter((p) => {
     const q = search.toLowerCase();
@@ -226,24 +279,7 @@ const PeopleScreen: React.FC = () => {
     // Filtro de aniversariantes por mês independente do ano (busca no titular e dependentes)
     let matchBirthdayMonth = true;
     if (filterBirthdayMonth) {
-      let titularMatches = false;
-      if (p.birth_date) {
-        const parts = p.birth_date.split('-');
-        if (parts.length === 3) {
-          titularMatches = parts[1] === filterBirthdayMonth;
-        }
-      }
-
-      let dependentMatches = false;
-      if (p.dependentes && p.dependentes.length > 0) {
-        dependentMatches = p.dependentes.some((dep: any) => {
-          if (!dep.birth_date) return false;
-          const parts = dep.birth_date.split('-');
-          return parts.length === 3 && parts[1] === filterBirthdayMonth;
-        });
-      }
-
-      matchBirthdayMonth = titularMatches || dependentMatches;
+      matchBirthdayMonth = getBirthdayMonthMatch(p, filterBirthdayMonth).matches;
     }
 
     return matchSearch && matchType && matchNeighb && matchCity && matchDestino && matchBirthdayMonth;
@@ -268,37 +304,25 @@ const PeopleScreen: React.FC = () => {
 
     // Tratamento especial para ordenação por data de nascimento
     if (key === 'birth_date') {
+      if (filterBirthdayMonth) {
+        const matchA = getBirthdayMonthMatch(a, filterBirthdayMonth);
+        const matchB = getBirthdayMonthMatch(b, filterBirthdayMonth);
+        
+        if (matchA.sortDay !== matchB.sortDay) {
+          return direction === 'asc' ? matchA.sortDay - matchB.sortDay : matchB.sortDay - matchA.sortDay;
+        }
+        return (a.full_name || '').localeCompare(b.full_name || '');
+      }
+
       if (!a.birth_date) return direction === 'asc' ? 1 : -1;
       if (!b.birth_date) return direction === 'asc' ? -1 : 1;
       
-      const partsA = a.birth_date.split('-');
-      const partsB = b.birth_date.split('-');
-      
-      if (partsA.length === 3 && partsB.length === 3) {
-        // Se houver um mês filtrado ativo, a ordenação foca no dia do aniversário (parts[2])
-        if (filterBirthdayMonth) {
-          const dayA = parseInt(partsA[2], 10);
-          const dayB = parseInt(partsB[2], 10);
-          if (dayA !== dayB) {
-            return direction === 'asc' ? dayA - dayB : dayB - dayA;
-          }
-          // Em caso de empate no dia, desempatar por ano
-          const yearA = parseInt(partsA[0], 10);
-          const yearB = parseInt(partsB[0], 10);
-          if (yearA !== yearB) {
-            return direction === 'asc' ? yearA - yearB : yearB - yearA;
-          }
-        } else {
-          // Ordenação completa de data (ano-mês-dia)
-          const dateA = new Date(a.birth_date).getTime();
-          const dateB = new Date(b.birth_date).getTime();
-          if (dateA !== dateB) {
-            return direction === 'asc' ? dateA - dateB : dateB - dateA;
-          }
-        }
+      const dateA = new Date(a.birth_date).getTime();
+      const dateB = new Date(b.birth_date).getTime();
+      if (dateA !== dateB) {
+        return direction === 'asc' ? dateA - dateB : dateB - dateA;
       }
       
-      // Fallback para nome completo em caso de datas idênticas ou formatos inválidos
       return (a.full_name || '').localeCompare(b.full_name || '');
     }
 
@@ -1127,15 +1151,23 @@ const PeopleScreen: React.FC = () => {
     const filterString = filterTexts.length > 0 ? `Filtros aplicados - ${filterTexts.join(' | ')}` : 'Nenhum filtro aplicado (Todos os registros)';
     
     // Table
-    const tableData = sorted.map(p => [
-      p.full_name || '',
-      p.person_type || '',
-      [p.phone ? maskPhone(p.phone) : '', p.telefone_extra ? maskPhone(p.telefone_extra) : '', p.phone_extra ? maskPhone(p.phone_extra) : ''].filter(Boolean).join(' / '),
-      p.address || '',
-      p.neighborhood || '',
-      p.city || '',
-      formatDate(p.birth_date) || ''
-    ]);
+    const tableData = sorted.map(p => {
+      const matchInfo = getBirthdayMonthMatch(p, filterBirthdayMonth);
+      let niverStr = formatDate(p.birth_date) || '—';
+      if (filterBirthdayMonth && matchInfo.matchingDeps.length > 0 && !matchInfo.titularMatches) {
+        const depNames = matchInfo.matchingDeps.map(d => `${d.name} (${formatDate(d.birth_date).slice(0, 5)})`).join(', ');
+        niverStr += ` (Dep: ${depNames})`;
+      }
+      return [
+        p.full_name || '',
+        p.person_type || '',
+        [p.phone ? maskPhone(p.phone) : '', p.telefone_extra ? maskPhone(p.telefone_extra) : '', p.phone_extra ? maskPhone(p.phone_extra) : ''].filter(Boolean).join(' / '),
+        p.address || '',
+        p.neighborhood || '',
+        p.city || '',
+        niverStr
+      ];
+    });
 
     autoTable(doc, {
       startY: 32,
@@ -1527,7 +1559,25 @@ const PeopleScreen: React.FC = () => {
                       {p.phone ? maskPhone(p.phone) : '—'}
                     </td>
                     <td className="py-4 px-6 text-sm text-slate-600 dark:text-slate-400">
-                      {formatDate(p.birth_date)}
+                      <div className="flex flex-col items-start gap-1">
+                        <span>{formatDate(p.birth_date)}</span>
+                        {(() => {
+                          if (!filterBirthdayMonth) return null;
+                          const matchInfo = getBirthdayMonthMatch(p, filterBirthdayMonth);
+                          if (matchInfo.matchingDeps.length > 0) {
+                            return matchInfo.matchingDeps.map((dep, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-900/30 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800/50"
+                                title={`Dependente com aniversário no mês ${filterBirthdayMonth}`}
+                              >
+                                🎂 Dep: {dep.name} ({formatDate(dep.birth_date).slice(0, 5)})
+                              </span>
+                            ));
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </td>
                     <td className="py-4 px-6 text-sm whitespace-nowrap">
                       {p.niver_mensagem_enviada_em ? (
